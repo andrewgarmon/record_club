@@ -3,17 +3,6 @@ import pandas as pd
 import streamlit as st
 import matplotlib as plt
 
-LISTENERS = [
-    "Riley",
-    "Sky",
-    "Alex",
-    "Harry",
-    "Jose",
-    "Thomas",
-    "Manny",
-    "Drew",
-]
-
 
 def make_albums_df(df: pd.DataFrame) -> pd.DataFrame:
     albums_df = (
@@ -31,12 +20,29 @@ def make_albums_df(df: pd.DataFrame) -> pd.DataFrame:
     return albums_df
 
 
-def make_reviews_df(df: pd.DataFrame, listeners: list[str]) -> pd.DataFrame:
+def make_reviews_df(df: pd.DataFrame) -> pd.DataFrame:
+    listener_columns = [
+        col
+        for col in df.columns
+        if not col.endswith(('.1', '.2', 'Unnamed'))
+        and col
+        not in [
+            'Date',
+            'Requester',
+            'Artist',
+            'Album',
+            'Average',
+            'Median',
+            'Favorite',
+            'Worst',
+        ]
+    ]
+
     reviews_rows = []
     for index, row in df.iterrows():
         if pd.isnull(row["Artist"]) or pd.isnull(row["Album"]):
             continue
-        for listener in listeners:
+        for listener in listener_columns:
             score = row.get(listener)
             if pd.isnull(score):
                 continue
@@ -108,7 +114,7 @@ if __name__ == "__main__":
     df = pd.read_csv('data.csv', encoding='utf_8')
 
     albums_df = make_albums_df(df)
-    reviews_df = make_reviews_df(df, LISTENERS)
+    reviews_df = make_reviews_df(df)
 
     st.markdown('#### Album Scores')
     st.dataframe(
