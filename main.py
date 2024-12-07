@@ -3,6 +3,8 @@ import pandas as pd
 import streamlit as st
 import matplotlib as plt
 
+import last_fm
+
 
 def make_albums_df(df: pd.DataFrame) -> pd.DataFrame:
     albums_df = (
@@ -112,9 +114,9 @@ def make_listener_requester_df(
 
 if __name__ == "__main__":
     df = pd.read_csv('data.csv', encoding='utf_8')
-
     albums_df = make_albums_df(df)
     reviews_df = make_reviews_df(df)
+    lf_client = last_fm.LastFmClient(st.secrets['LAST_FM_API_KEY'])
 
     st.markdown('#### Album Scores')
     st.dataframe(
@@ -162,3 +164,25 @@ if __name__ == "__main__":
             axis=None, cmap='RdYlGn_r'
         )
     )
+
+
+top_albums = (
+    reviews_df.groupby(["artist", "album"])["score"]
+    .agg(["mean", "median"])
+    .reset_index()
+    .round(2)
+    .sort_values(by="mean", ascending=False)
+    .head(25)
+)
+album_list = list(zip(top_albums["artist"], top_albums["album"]))
+columns = [st.columns(5) for _ in range(5)]  # 5 rows, 5 columns per row
+for index, (artist, album) in enumerate(album_list):
+    row, col = divmod(index, 5)  # Determine the row and column dynamically
+    with columns[row][col]:
+        try:
+            # Fetch album and render image
+            album_data = lf_client.get_album(artist, album)
+            st.image(album_data.get_album_art(), use_container_width=True)
+        except Exception as e:
+            print(e)
+            st.error(f"Error loading album: {artist} - {album}")
