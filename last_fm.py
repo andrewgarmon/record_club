@@ -5,6 +5,12 @@ import streamlit as st
 _DEFAULT_IMAGE_SIZE = 'large'
 
 
+@st.cache_data
+def _get_album_art(url):
+    res = requests.get(url)
+    return res.content
+
+
 class Album:
     def __init__(self, get_album_response):
         album_data = get_album_response.get('album', {})
@@ -35,8 +41,7 @@ class Album:
         self.playcount = album_data.get('playcount')
 
     def get_album_art(self):
-        res = requests.get(self.image_url)
-        return res.content
+        return _get_album_art(self.image_url)
 
 
 class LastFmClient:

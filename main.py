@@ -112,12 +112,17 @@ def make_listener_requester_df(
     )
 
 
-if __name__ == "__main__":
-    sheets_doc_id = st.secrets['SHEETS_DOC_ID']
-    df = pd.read_csv(
+@st.cache_data
+def _get_df_from_sheets(sheets_doc_id):
+    return pd.read_csv(
         f'https://docs.google.com/spreadsheets/d/{sheets_doc_id}/export?format=csv&gid=1242904482',
         encoding='utf_8',
     )
+
+
+if __name__ == "__main__":
+    sheets_doc_id = st.secrets['SHEETS_DOC_ID']
+    df = _get_df_from_sheets(sheets_doc_id)
     albums_df = make_albums_df(df)
     reviews_df = make_reviews_df(df)
     lf_client = last_fm.LastFmClient(st.secrets['LAST_FM_API_KEY'])
