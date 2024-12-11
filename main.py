@@ -127,70 +127,97 @@ if __name__ == "__main__":
     reviews_df = make_reviews_df(df)
     lf_client = last_fm.LastFmClient(st.secrets['LAST_FM_API_KEY'])
 
-    st.markdown('#### Album Scores')
-    st.dataframe(
-        reviews_df.groupby(["artist", "album"])["score"]
-        .agg(["mean", "median"])
-        .reset_index()
-        .round(2)
-        .sort_values(by='mean', ascending=False)
-        .style.background_gradient(axis=None, cmap='RdYlGn'),
-        hide_index=True,
-    )
+    listeners = list(reviews_df["listener"].drop_duplicates())
+    tabs = st.tabs(["Main"] + listeners)
 
-    st.markdown('#### Favorite Tracks')
-    st.dataframe(
-        reviews_df.groupby(["artist", "album", "favorite_track"])["listener"]
-        .count()
-        .reset_index()
-        .sort_values(by="listener", ascending=False)
-        .rename(columns={"listener": "count"}),
-        hide_index=True,
-    )
-
-    st.markdown('#### Least Favorite Tracks')
-    st.dataframe(
-        reviews_df.groupby(["artist", "album", "least_favorite_track"])[
-            "listener"
-        ]
-        .count()
-        .reset_index()
-        .sort_values(by="listener", ascending=False)
-        .rename(columns={"listener": "count"}),
-        hide_index=True,
-    )
-
-    st.markdown('#### Average Score by Listener/Requester')
-    st.dataframe(
-        make_listener_requester_df(
-            albums_df, reviews_df
-        ).style.background_gradient(axis=None, cmap='RdYlGn')
-    )
-
-    st.markdown('#### Deviation from other listeners\' scores')
-    st.dataframe(
-        make_deviation_df(reviews_df).style.background_gradient(
-            axis=None, cmap='RdYlGn_r'
+    with tabs[0]:
+        st.markdown('#### Album Scores')
+        st.dataframe(
+            reviews_df.groupby(["artist", "album"])["score"]
+            .agg(["mean", "median"])
+            .reset_index()
+            .round(2)
+            .sort_values(by='mean', ascending=False)
+            .style.background_gradient(axis=None, cmap='RdYlGn'),
+            hide_index=True,
         )
-    )
 
-    top_albums = (
-        reviews_df.groupby(["artist", "album"])["score"]
-        .agg(["mean", "median"])
-        .reset_index()
-        .round(2)
-        .sort_values(by="mean", ascending=False)
-        .head(25)
-    )
-    album_list = list(zip(top_albums["artist"], top_albums["album"]))
-    columns = [st.columns(5) for _ in range(5)]  # 5 rows, 5 columns per row
-    for index, (artist, album) in enumerate(album_list):
-        row, col = divmod(index, 5)  # Determine the row and column dynamically
-        with columns[row][col]:
-            try:
-                # Fetch album and render image
-                album_data = lf_client.get_album(artist, album)
-                st.image(album_data.get_album_art(), use_container_width=True)
-            except Exception as e:
-                print(e)
-                st.error(f"Error loading album: {artist} - {album}")
+        st.markdown('#### Favorite Tracks')
+        st.dataframe(
+            reviews_df.groupby(["artist", "album", "favorite_track"])[
+                "listener"
+            ]
+            .count()
+            .reset_index()
+            .sort_values(by="listener", ascending=False)
+            .rename(columns={"listener": "count"}),
+            hide_index=True,
+        )
+
+        st.markdown('#### Least Favorite Tracks')
+        st.dataframe(
+            reviews_df.groupby(["artist", "album", "least_favorite_track"])[
+                "listener"
+            ]
+            .count()
+            .reset_index()
+            .sort_values(by="listener", ascending=False)
+            .rename(columns={"listener": "count"}),
+            hide_index=True,
+        )
+
+        st.markdown('#### Average Score by Listener/Requester')
+        st.dataframe(
+            make_listener_requester_df(
+                albums_df, reviews_df
+            ).style.background_gradient(axis=None, cmap='RdYlGn')
+        )
+
+        st.markdown('#### Deviation from other listeners\' scores')
+        st.dataframe(
+            make_deviation_df(reviews_df).style.background_gradient(
+                axis=None, cmap='RdYlGn_r'
+            )
+        )
+
+        top_albums = (
+            reviews_df.groupby(["artist", "album"])["score"]
+            .agg(["mean", "median"])
+            .reset_index()
+            .round(2)
+            .sort_values(by="mean", ascending=False)
+            .head(25)
+        )
+        album_list = list(zip(top_albums["artist"], top_albums["album"]))
+        columns = [st.columns(5) for _ in range(5)]  # 5 rows, 5 columns per row
+        for index, (artist, album) in enumerate(album_list):
+            row, col = divmod(
+                index, 5
+            )  # Determine the row and column dynamically
+            with columns[row][col]:
+                try:
+                    # Fetch album and render image
+                    album_data = lf_client.get_album(artist, album)
+                    st.image(
+                        album_data.get_album_art(), use_container_width=True
+                    )
+                except Exception as e:
+                    print(e)
+                    st.error(f"Error loading album: {artist} - {album}")
+
+    for i, listener in enumerate(listeners):
+        with tabs[i + 1]:
+            listener_reviews = reviews_df[reviews_df["listener"] == listener]
+
+            if not listener_reviews.empty:
+                highest_rated = listener_reviews.loc[
+                    listener_reviews["score"].idxmax()
+                ]
+                album = highest_rated["album"]
+                score = highest_rated["score"]
+
+                st.subheader(f"Highest Rated Album for {listener}")
+                st.write(f"**Album:** {album}")
+                st.write(f"**Score:** {score}")
+            else:
+                st.write("No reviews available for this listener.")
