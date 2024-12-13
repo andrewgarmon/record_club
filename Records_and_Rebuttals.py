@@ -1,13 +1,12 @@
 import numpy as np
 import pandas as pd
 import streamlit as st
-import matplotlib as plt
-
 import last_fm
+from io import BytesIO
 
 
 def make_albums_df(df: pd.DataFrame) -> pd.DataFrame:
-    albums_df = (
+    return (
         df[["Artist", "Album", "Requester", "Date"]]
         .rename(
             columns={
@@ -19,7 +18,6 @@ def make_albums_df(df: pd.DataFrame) -> pd.DataFrame:
         )
         .reset_index(drop=True)
     )
-    return albums_df
 
 
 def make_reviews_df(df: pd.DataFrame) -> pd.DataFrame:
@@ -40,24 +38,20 @@ def make_reviews_df(df: pd.DataFrame) -> pd.DataFrame:
         ]
     ]
 
-    reviews_rows = []
-    for index, row in df.iterrows():
-        if pd.isnull(row["Artist"]) or pd.isnull(row["Album"]):
-            continue
-        for listener in listener_columns:
-            score = row.get(listener)
-            if pd.isnull(score):
-                continue
-            reviews_rows.append(
-                {
-                    "listener": listener,
-                    "artist": row["Artist"],
-                    "album": row["Album"],
-                    "score": score,
-                    "favorite_track": row.get(f"{listener}.1"),
-                    "least_favorite_track": row.get(f"{listener}.2"),
-                }
-            )
+    reviews_rows = [
+        {
+            "listener": listener,
+            "artist": row["Artist"],
+            "album": row["Album"],
+            "score": score,
+            "favorite_track": row.get(f"{listener}.1"),
+            "least_favorite_track": row.get(f"{listener}.2"),
+        }
+        for _, row in df.iterrows()
+        if pd.notnull(row["Artist"]) and pd.notnull(row["Album"])
+        for listener in listener_columns
+        if pd.notnull(score := row.get(listener))
+    ]
 
     return pd.DataFrame(reviews_rows)
 
@@ -65,32 +59,33 @@ def make_reviews_df(df: pd.DataFrame) -> pd.DataFrame:
 def make_deviation_df(reviews_df: pd.DataFrame) -> pd.DataFrame:
     users = reviews_df['listener'].unique()
     similarity_matrix = pd.DataFrame(index=users, columns=users)
+
     for user1 in users:
         for user2 in users:
-            if user1 != user2:
-                reviews1 = reviews_df[reviews_df['listener'] == user1]
-                reviews2 = reviews_df[reviews_df['listener'] == user2]
-                common_albums = list(
-                    set(reviews1['album'].unique()).intersection(
-                        set(reviews2['album'].unique())
+            if user1 == user2:
+                continue
+
+            reviews1 = reviews_df[reviews_df['listener'] == user1]
+            reviews2 = reviews_df[reviews_df['listener'] == user2]
+            common_albums = set(reviews1['album']).intersection(
+                reviews2['album']
+            )
+
+            if common_albums:
+                merged_reviews = pd.merge(
+                    reviews1[reviews1['album'].isin(common_albums)],
+                    reviews2[reviews2['album'].isin(common_albums)],
+                    on=['artist', 'album'],
+                    suffixes=('_1', '_2'),
+                )
+                deviation_metric = np.sqrt(
+                    np.mean(
+                        (merged_reviews['score_1'] - merged_reviews['score_2'])
+                        ** 2
                     )
                 )
-                if common_albums:
-                    merged_reviews = pd.merge(
-                        reviews1[reviews1['album'].isin(common_albums)],
-                        reviews2[reviews2['album'].isin(common_albums)],
-                        on=['artist', 'album'],
-                        suffixes=('_1', '_2'),
-                    )
+                similarity_matrix.loc[user1, user2] = deviation_metric.round(2)
 
-                    squared_errors = (
-                        merged_reviews['score_1'] - merged_reviews['score_2']
-                    ) ** 2
-                    avg_squared_error = np.mean(squared_errors)
-                    deviation_metric = np.sqrt(avg_squared_error)
-                    similarity_matrix.loc[user1, user2] = (
-                        deviation_metric.round(2)
-                    )
     similarity_matrix.fillna(0, inplace=True)
     similarity_matrix.loc['average'] = similarity_matrix.mean().round(2)
     return similarity_matrix
@@ -99,7 +94,6 @@ def make_deviation_df(reviews_df: pd.DataFrame) -> pd.DataFrame:
 def make_listener_requester_df(
     albums_df: pd.DataFrame, reviews_df: pd.DataFrame
 ) -> pd.DataFrame:
-    # the chart
     merged_df = pd.merge(reviews_df, albums_df, on=['artist', 'album'])
     avg_scores_df = (
         merged_df.groupby(['listener', 'requester'])['score']
@@ -113,24 +107,14 @@ def make_listener_requester_df(
 
 
 @st.cache_data
-def _get_df_from_sheets(sheets_doc_id):
+def _get_df_from_sheets(sheets_doc_id: str) -> pd.DataFrame:
     return pd.read_csv(
         f'https://docs.google.com/spreadsheets/d/{sheets_doc_id}/export?format=csv&gid=1242904482',
         encoding='utf_8',
     )
 
 
-if __name__ == "__main__":
-    sheets_doc_id = st.secrets['SHEETS_DOC_ID']
-    df = _get_df_from_sheets(sheets_doc_id)
-    albums_df = make_albums_df(df)
-    if "albums_df" not in st.session_state:
-        st.session_state["albums_df"] = albums_df
-    reviews_df = make_reviews_df(df)
-    if "reviews_df" not in st.session_state:
-        st.session_state["reviews_df"] = reviews_df
-    lf_client = last_fm.LastFmClient(st.secrets['LAST_FM_API_KEY'])
-
+def display_summary_tables(reviews_df: pd.DataFrame) -> None:
     st.markdown('#### Album Scores')
     st.dataframe(
         reviews_df.groupby(["artist", "album"])["score"]
@@ -164,6 +148,10 @@ if __name__ == "__main__":
         hide_index=True,
     )
 
+
+def display_listener_analysis(
+    albums_df: pd.DataFrame, reviews_df: pd.DataFrame
+) -> None:
     st.markdown('#### Average Score by Listener/Requester')
     st.dataframe(
         make_listener_requester_df(
@@ -178,6 +166,11 @@ if __name__ == "__main__":
         )
     )
 
+
+def display_top_albums(
+    reviews_df: pd.DataFrame, lf_client: last_fm.LastFmClient
+) -> None:
+    st.markdown('#### Top Albums')
     top_albums = (
         reviews_df.groupby(["artist", "album"])["score"]
         .agg(["mean", "median"])
@@ -187,14 +180,48 @@ if __name__ == "__main__":
         .head(25)
     )
     album_list = list(zip(top_albums["artist"], top_albums["album"]))
-    columns = [st.columns(5) for _ in range(5)]  # 5 rows, 5 columns per row
+
+    progress_bar = st.progress(0)
+    album_images = []
+    errors = []
+
     for index, (artist, album) in enumerate(album_list):
-        row, col = divmod(index, 5)  # Determine the row and column dynamically
+        try:
+            album_data = lf_client.get_album(artist, album)
+            album_art = album_data.get_album_art()
+            album_images.append((artist, album, album_art))
+        except Exception as e:
+            errors.append((artist, album, str(e)))
+        finally:
+            progress_bar.progress((index + 1) / len(album_list))
+
+    progress_bar.empty()
+
+    columns = [st.columns(5) for _ in range(5)]
+    for index, (artist, album, album_art) in enumerate(album_images):
+        row, col = divmod(index, 5)
         with columns[row][col]:
-            try:
-                # Fetch album and render image
-                album_data = lf_client.get_album(artist, album)
-                st.image(album_data.get_album_art(), use_container_width=True)
-            except Exception as e:
-                print(e)
-                st.error(f"Error loading album: {artist} - {album}")
+            st.image(album_art, use_container_width=True)
+            st.caption(f"{artist} - {album}")
+
+    if errors:
+        st.markdown("### Errors")
+        for artist, album, error_message in errors:
+            st.error(
+                f"Failed to load: {artist} - {album}. Error: {error_message}"
+            )
+
+
+if __name__ == "__main__":
+    sheets_doc_id = st.secrets['SHEETS_DOC_ID']
+    df = _get_df_from_sheets(sheets_doc_id)
+    albums_df = make_albums_df(df)
+    reviews_df = make_reviews_df(df)
+    lf_client = last_fm.LastFmClient(st.secrets['LAST_FM_API_KEY'])
+
+    st.session_state["albums_df"] = albums_df
+    st.session_state["reviews_df"] = reviews_df
+
+    display_summary_tables(reviews_df)
+    display_listener_analysis(albums_df, reviews_df)
+    display_top_albums(reviews_df, lf_client)
