@@ -56,7 +56,8 @@ def make_reviews_df(df: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(reviews_rows)
 
 
-def make_deviation_df(reviews_df: pd.DataFrame) -> pd.DataFrame:
+def make_deviation_df() -> pd.DataFrame:
+    reviews_df = st.session_state['reviews_df']
     users = reviews_df['listener'].unique()
     similarity_matrix = pd.DataFrame(index=users, columns=users)
 
@@ -91,9 +92,9 @@ def make_deviation_df(reviews_df: pd.DataFrame) -> pd.DataFrame:
     return similarity_matrix
 
 
-def make_listener_requester_df(
-    albums_df: pd.DataFrame, reviews_df: pd.DataFrame
-) -> pd.DataFrame:
+def make_listener_requester_df() -> pd.DataFrame:
+    albums_df = st.session_state['albums_df']
+    reviews_df = st.session_state['reviews_df']
     merged_df = pd.merge(reviews_df, albums_df, on=['artist', 'album'])
     avg_scores_df = (
         merged_df.groupby(['listener', 'requester'])['score']
@@ -114,7 +115,8 @@ def _get_df_from_sheets(sheets_doc_id: str) -> pd.DataFrame:
     )
 
 
-def display_summary_tables(reviews_df: pd.DataFrame) -> None:
+def display_summary_tables() -> None:
+    reviews_df = st.session_state["reviews_df"]
     st.markdown('#### Album Scores')
     st.dataframe(
         reviews_df.groupby(["artist", "album"])["score"]
@@ -149,27 +151,24 @@ def display_summary_tables(reviews_df: pd.DataFrame) -> None:
     )
 
 
-def display_listener_analysis(
-    albums_df: pd.DataFrame, reviews_df: pd.DataFrame
-) -> None:
+def display_listener_analysis() -> None:
     st.markdown('#### Average Score by Listener/Requester')
     st.dataframe(
-        make_listener_requester_df(
-            albums_df, reviews_df
-        ).style.background_gradient(axis=None, cmap='RdYlGn')
+        st.session_state["listener_requester_df"].style.background_gradient(
+            axis=None, cmap='RdYlGn'
+        )
     )
 
     st.markdown('#### Deviation from other listeners\' scores')
     st.dataframe(
-        make_deviation_df(reviews_df).style.background_gradient(
+        st.session_state["deviation_df"].style.background_gradient(
             axis=None, cmap='RdYlGn_r'
         )
     )
 
 
-def display_top_albums(
-    reviews_df: pd.DataFrame, lf_client: last_fm.LastFmClient
-) -> None:
+def display_top_albums(lf_client: last_fm.LastFmClient) -> None:
+    reviews_df = st.session_state["reviews_df"]
     st.markdown('#### Top Albums')
     top_albums = (
         reviews_df.groupby(["artist", "album"])["score"]
@@ -215,13 +214,13 @@ def display_top_albums(
 if __name__ == "__main__":
     sheets_doc_id = st.secrets['SHEETS_DOC_ID']
     df = _get_df_from_sheets(sheets_doc_id)
-    albums_df = make_albums_df(df)
-    reviews_df = make_reviews_df(df)
     lf_client = last_fm.LastFmClient(st.secrets['LAST_FM_API_KEY'])
 
-    st.session_state["albums_df"] = albums_df
-    st.session_state["reviews_df"] = reviews_df
+    st.session_state["albums_df"] = make_albums_df(df)
+    st.session_state["reviews_df"] = make_reviews_df(df)
+    st.session_state["deviation_df"] = make_deviation_df()
+    st.session_state["listener_requester_df"] = make_listener_requester_df()
 
-    display_summary_tables(reviews_df)
-    display_listener_analysis(albums_df, reviews_df)
-    display_top_albums(reviews_df, lf_client)
+    display_summary_tables()
+    display_listener_analysis()
+    display_top_albums(lf_client)
