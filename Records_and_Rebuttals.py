@@ -212,6 +212,7 @@ def display_top_albums(lf_client: last_fm.LastFmClient) -> None:
 
 
 if __name__ == "__main__":
+    st.set_page_config(page_title='Records and Rebuttals')
     sheets_doc_id = st.secrets['SHEETS_DOC_ID']
     df = _get_df_from_sheets(sheets_doc_id)
     lf_client = last_fm.LastFmClient(st.secrets['LAST_FM_API_KEY'])
