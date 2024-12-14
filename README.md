@@ -9,7 +9,7 @@
 `streamlit run main.py`
 
 ## Streamlit Community Cloud Deployment:
-http://records.streamlit.app
+http://record-club.streamlit.app
 http://records-dev.streamlit.app
 
 To deploy: push to dev, go to the dev deployment and ensure the changes work,
