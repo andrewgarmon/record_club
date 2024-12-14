@@ -10,9 +10,7 @@
 
 ## Streamlit Community Cloud Deployment:
 http://records.streamlit.app
-http://records-test.streamlit.app
+http://records-dev.streamlit.app
 
 To deploy: push to dev, go to the dev deployment and ensure the changes work,
 then submit a PR to main.
-
-TODO: make a dev branch
