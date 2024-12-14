@@ -1,14 +1,15 @@
 from urllib.parse import urlencode
+from io import BytesIO
 import requests
 import streamlit as st
 
 _DEFAULT_IMAGE_SIZE = 'large'
 
 
-@st.cache_data
+@st.cache_resource
 def _get_album_art(url):
     res = requests.get(url)
-    return res.content
+    return BytesIO(res.content)
 
 
 class Album:
