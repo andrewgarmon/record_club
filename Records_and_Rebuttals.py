@@ -154,16 +154,16 @@ def display_summary_tables() -> None:
 def display_listener_analysis() -> None:
     st.markdown('#### Average Score by Listener/Requester')
     st.dataframe(
-        st.session_state["listener_requester_df"].style.background_gradient(
-            axis=None, cmap='RdYlGn'
-        )
+        st.session_state["listener_requester_df"]
+        .style.format(precision=2)
+        .background_gradient(axis=None, cmap='RdYlGn')
     )
 
     st.markdown('#### Deviation from other listeners\' scores')
     st.dataframe(
-        st.session_state["deviation_df"].style.background_gradient(
-            axis=None, cmap='RdYlGn_r'
-        )
+        st.session_state["deviation_df"]
+        .style.format(precision=2)
+        .background_gradient(axis=None, cmap='RdYlGn_r')
     )
 
 
