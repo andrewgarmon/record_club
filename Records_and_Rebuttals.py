@@ -2,7 +2,6 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 import last_fm
-from io import BytesIO
 
 
 def make_albums_df(df: pd.DataFrame) -> pd.DataFrame:
