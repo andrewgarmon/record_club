@@ -4,12 +4,22 @@ import requests
 import streamlit as st
 
 _DEFAULT_IMAGE_SIZE = 'large'
+_USER_AGENT = 'RecordClub/1.0'
 
 
 @st.cache_resource
 def _get_album_art(url):
-    res = requests.get(url)
+    headers = {'User-Agent': _USER_AGENT}
+    res = requests.get(url, headers=headers)
     return BytesIO(res.content)
+
+
+@st.cache_resource
+def _make_call(url):
+    headers = {'User-Agent': _USER_AGENT}
+    response = requests.get(url, headers=headers)
+    response.raise_for_status()
+    return response.json()
 
 
 class Album:
@@ -33,11 +43,14 @@ class Album:
             }
             for track in album_data.get('tracks', {}).get('track', [])
         ]
-        #  TODO: This breaks with invalid call of get() on str
-        # self.tags = [
-        #     {'name': tag.get('name')}
-        #     for tag in album_data.get('tags', {}).get('tag', [])
-        # ]
+        self.tags = (
+            [
+                {'name': tag.get('name')}
+                for tag in album_data.get('tags', {}).get('tag', [])
+            ]
+            if album_data.get('tags')
+            else []
+        )
         self.listeners = album_data.get('listeners')
         self.playcount = album_data.get('playcount')
 
@@ -46,10 +59,9 @@ class Album:
 
 
 class LastFmClient:
-    def __init__(self, api_key, user_agent='RecordClub/1.0'):
+    def __init__(self, api_key):
         self.api_key = api_key
         self.base_url = 'https://ws.audioscrobbler.com/2.0/'
-        self.user_agent = user_agent
 
     def _build_url(self, method, params):
         params.update(
@@ -57,14 +69,8 @@ class LastFmClient:
         )
         return f"{self.base_url}?{urlencode(params)}"
 
-    def make_call(self, method, params):
-        url = self._build_url(method, params)
-        headers = {'User-Agent': self.user_agent}
-        response = requests.get(url, headers=headers)
-        response.raise_for_status()
-        return response.json()
-
     def get_album(self, artist, album):
         params = {'artist': artist, 'album': album, 'autocorrect': 1}
-        res = self.make_call('album.getinfo', params)
+        url = self._build_url('album.getinfo', params)
+        res = _make_call(url)
         return Album(res) if res else None
