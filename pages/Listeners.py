@@ -45,9 +45,11 @@ def _display_scores_given(listener_requester_df, reviews_df, listener):
     )
 
 
-def _display_scores_received(listener_requester_df, reviews_df, listener):
+def _display_scores_received(
+    listener_requester_df, albums_df, reviews_df, listener
+):
     received_scores = listener_requester_df[[listener]].dropna().T
-    listener_albums = reviews_df[reviews_df["listener"] == listener][
+    listener_albums = albums_df[albums_df["requester"] == listener][
         "album"
     ].unique()
     avg_score_received = reviews_df[
@@ -81,7 +83,12 @@ def _display_deviation(deviation_df, listener):
 
 
 def _display_listener_details(
-    listener, listener_requester_df, deviation_df, reviews_df, lf_client
+    listener,
+    listener_requester_df,
+    deviation_df,
+    reviews_df,
+    albums_df,
+    lf_client,
 ):
     listener_reviews = reviews_df[reviews_df["listener"] == listener]
 
@@ -123,7 +130,9 @@ def _display_listener_details(
 
     st.markdown("#### Scores Received by Listeners")
     if listener in listener_requester_df.columns:
-        _display_scores_received(listener_requester_df, reviews_df, listener)
+        _display_scores_received(
+            listener_requester_df, albums_df, reviews_df, listener
+        )
     else:
         st.write("No scores available for this listener.")
 
@@ -143,6 +152,7 @@ if "reviews_df" in st.session_state and "albums_df" in st.session_state:
                 listener_requester_df,
                 deviation_df,
                 reviews_df,
+                albums_df,
                 lf_client,
             )
 else:
