@@ -153,3 +153,36 @@ def build_listener_requester_df(
     )
     avg_scores_df['score'] = avg_scores_df['score'].round(1)
     return avg_scores_df.pivot(index='listener', columns='requester', values='score')
+
+
+def ensure_session_state(sheets_doc_id: str) -> None:
+    """Populate session state with all derived dataframes.
+
+    Safe to call from any page: if everything's already loaded we return
+    immediately, otherwise we load the sheet and build every derived frame
+    the app uses. This frees non-home pages from depending on whatever keys
+    happened to be set by the last Home-page run.
+    """
+    required = (
+        'albums_df',
+        'reviews_df',
+        'deviation_df',
+        'listener_requester_df',
+        'album_stats_df',
+    )
+    if all(k in st.session_state for k in required):
+        return
+
+    df = load_sheet(sheets_doc_id)
+    listeners = get_listeners(df)
+    albums_df = build_albums_df(df)
+    reviews_df = build_reviews_df(df, listeners)
+    st.session_state['albums_df'] = albums_df
+    st.session_state['reviews_df'] = reviews_df
+    st.session_state['deviation_df'] = build_deviation_df(reviews_df)
+    st.session_state['listener_requester_df'] = build_listener_requester_df(
+        reviews_df, albums_df
+    )
+    st.session_state['album_stats_df'] = build_album_stats_df(
+        reviews_df, albums_df
+    )
