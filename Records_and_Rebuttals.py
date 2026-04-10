@@ -111,6 +111,9 @@ st.session_state["deviation_df"] = data.build_deviation_df(st.session_state["rev
 st.session_state["listener_requester_df"] = data.build_listener_requester_df(
     st.session_state["reviews_df"], st.session_state["albums_df"]
 )
+st.session_state["album_stats_df"] = data.build_album_stats_df(
+    st.session_state["reviews_df"], st.session_state["albums_df"]
+)
 
 display_summary_tables()
 display_listener_analysis()

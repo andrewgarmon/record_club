@@ -40,6 +40,14 @@ def get_listeners(df: pd.DataFrame) -> list[str]:
     ]
 
 
+def _year_to_decade(year) -> str | None:
+    try:
+        y = int(year)
+    except (TypeError, ValueError):
+        return None
+    return f"{(y // 10) * 10}s"
+
+
 def build_albums_df(df: pd.DataFrame) -> pd.DataFrame:
     columns = {
         'Artist': 'artist',
@@ -49,8 +57,39 @@ def build_albums_df(df: pd.DataFrame) -> pd.DataFrame:
     }
     if 'Release Year' in df.columns:
         columns['Release Year'] = 'release_year'
+    if 'Decade' in df.columns:
+        columns['Decade'] = 'decade'
     available = {k: v for k, v in columns.items() if k in df.columns}
-    return df[list(available.keys())].rename(columns=available).reset_index(drop=True)
+    result = (
+        df[list(available.keys())].rename(columns=available).reset_index(drop=True)
+    )
+    if 'decade' not in result.columns and 'release_year' in result.columns:
+        result['decade'] = result['release_year'].apply(_year_to_decade)
+    if 'date' in result.columns:
+        result['date'] = pd.to_datetime(result['date'], errors='coerce')
+    return result
+
+
+def build_album_stats_df(
+    reviews_df: pd.DataFrame, albums_df: pd.DataFrame
+) -> pd.DataFrame:
+    """Per-album score aggregates joined with album metadata.
+
+    Columns: artist, album, requester, date, release_year, decade (when
+    available), plus mean/median/std/min/max/count.
+    """
+    if reviews_df.empty:
+        return pd.DataFrame()
+    stats = (
+        reviews_df.groupby(['artist', 'album'])['score']
+        .agg(['mean', 'median', 'std', 'min', 'max', 'count'])
+        .reset_index()
+    )
+    stats['std'] = stats['std'].fillna(0)
+    merged = stats.merge(albums_df, on=['artist', 'album'], how='left')
+    return merged.round(
+        {'mean': 2, 'median': 2, 'std': 2, 'min': 2, 'max': 2}
+    )
 
 
 def build_reviews_df(df: pd.DataFrame, listeners: list[str]) -> pd.DataFrame:
