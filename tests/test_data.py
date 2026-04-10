@@ -53,13 +53,14 @@ class TestBuildAlbumsDf:
     def test_selects_and_renames_columns(self, raw_sheet_df):
         df = data._normalize_columns(raw_sheet_df)
         albums = data.build_albums_df(df)
-        assert list(albums.columns) == [
+        assert set(albums.columns) == {
             "artist",
             "album",
             "requester",
             "date",
             "release_year",
-        ]
+            "decade",
+        }
         assert len(albums) == 3
         assert albums.iloc[0]["artist"] == "Beatles"
         assert albums.iloc[0]["album"] == "Abbey Road"
@@ -69,6 +70,49 @@ class TestBuildAlbumsDf:
         albums = data.build_albums_df(df)
         assert "release_year" not in albums.columns
         assert "artist" in albums.columns
+
+    def test_parses_date_column_to_datetime(self, raw_sheet_df):
+        df = data._normalize_columns(raw_sheet_df)
+        albums = data.build_albums_df(df)
+        assert pd.api.types.is_datetime64_any_dtype(albums["date"])
+
+    def test_derives_decade_from_release_year_when_missing(self, raw_sheet_df):
+        df = data._normalize_columns(raw_sheet_df).drop(columns=["Decade"])
+        albums = data.build_albums_df(df)
+        assert "decade" in albums.columns
+        # Beatles/Abbey Road (1969) -> "1960s"
+        assert albums.iloc[0]["decade"] == "1960s"
+
+    def test_uses_sheet_decade_column_when_present(self, raw_sheet_df):
+        df = data._normalize_columns(raw_sheet_df)
+        albums = data.build_albums_df(df)
+        # Sheet fixture literally says "60s" — trust the sheet, don't overwrite.
+        assert albums.iloc[0]["decade"] == "60s"
+
+
+class TestBuildAlbumStatsDf:
+    def test_aggregates_album_scores_and_joins_metadata(self, raw_sheet_df):
+        df = data._normalize_columns(raw_sheet_df)
+        listeners = data.get_listeners(df)
+        reviews = data.build_reviews_df(df, listeners)
+        albums = data.build_albums_df(df)
+        stats = data.build_album_stats_df(reviews, albums)
+
+        assert {"mean", "median", "std", "count", "requester", "decade"} <= set(
+            stats.columns
+        )
+        abbey = stats[stats["album"] == "Abbey Road"].iloc[0]
+        # (9 + 7 + 8) / 3 = 8.0
+        assert abbey["mean"] == pytest.approx(8.0)
+        assert abbey["count"] == 3
+
+    def test_empty_reviews_returns_empty_frame(self):
+        empty_reviews = pd.DataFrame(
+            columns=["listener", "artist", "album", "score"]
+        )
+        empty_albums = pd.DataFrame(columns=["artist", "album", "requester"])
+        stats = data.build_album_stats_df(empty_reviews, empty_albums)
+        assert stats.empty
 
 
 class TestBuildReviewsDf:
