@@ -100,20 +100,8 @@ def display_top_albums(lf_client: last_fm.LastFmClient) -> None:
 
 
 st.set_page_config(page_title='Records and Rebuttals')
-sheets_doc_id = st.secrets['SHEETS_DOC_ID']
-df = data.load_sheet(sheets_doc_id)
+data.ensure_session_state(st.secrets['SHEETS_DOC_ID'])
 lf_client = last_fm.LastFmClient(st.secrets['LAST_FM_API_KEY'])
-
-listeners = data.get_listeners(df)
-st.session_state["albums_df"] = data.build_albums_df(df)
-st.session_state["reviews_df"] = data.build_reviews_df(df, listeners)
-st.session_state["deviation_df"] = data.build_deviation_df(st.session_state["reviews_df"])
-st.session_state["listener_requester_df"] = data.build_listener_requester_df(
-    st.session_state["reviews_df"], st.session_state["albums_df"]
-)
-st.session_state["album_stats_df"] = data.build_album_stats_df(
-    st.session_state["reviews_df"], st.session_state["albums_df"]
-)
 
 display_summary_tables()
 display_listener_analysis()

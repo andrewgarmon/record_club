@@ -9,18 +9,24 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
+import data
+
 st.set_page_config(page_title="Stats - Records and Rebuttals", layout="wide")
 st.title("Record Club Stats")
 
-if "reviews_df" not in st.session_state or "albums_df" not in st.session_state:
-    st.error("No reviews data available. Please visit the main page first.")
-    st.stop()
+data.ensure_session_state(st.secrets["SHEETS_DOC_ID"])
 
 reviews_df: pd.DataFrame = st.session_state["reviews_df"].copy()
 albums_df: pd.DataFrame = st.session_state["albums_df"].copy()
-album_stats: pd.DataFrame = st.session_state.get("album_stats_df", pd.DataFrame())
+album_stats: pd.DataFrame = st.session_state["album_stats_df"].copy()
 
-if reviews_df.empty or album_stats.empty:
+# Defensive: if album_stats_df was stashed by a prior (pre-update) run,
+# rebuild it rather than bailing with an empty page.
+if album_stats.empty and not reviews_df.empty:
+    album_stats = data.build_album_stats_df(reviews_df, albums_df)
+    st.session_state["album_stats_df"] = album_stats
+
+if reviews_df.empty:
     st.warning("No reviews yet — nothing to stat.")
     st.stop()
 
