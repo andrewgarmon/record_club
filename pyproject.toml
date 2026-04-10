@@ -1,0 +1,6 @@
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+filterwarnings = [
+    # Streamlit's caching decorators warn when run outside the app; harmless.
+    "ignore::UserWarning:streamlit.runtime.caching",
+]

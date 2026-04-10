@@ -1,5 +1,5 @@
 import streamlit as st
-import pandas as pd
+
 import last_fm
 
 
@@ -23,26 +23,17 @@ def _display_scores_given(listener_requester_df, reviews_df, listener):
         "score"
     ].mean()
     given_scores["Average"] = avg_score_given
-    valid_scores = given_scores.loc[listener].dropna()
 
-    sorted_columns = valid_scores.argsort()[::-1]  # Sort remaining valid scores
+    valid_scores = given_scores.loc[listener].dropna()
+    sorted_columns = valid_scores.argsort()[::-1]
     sorted_given_scores = given_scores[
         valid_scores.index[sorted_columns]
     ].reset_index(drop=True)
 
-    # Calculate the average score the listener gave
-    avg_score_given = reviews_df[reviews_df["listener"] == listener][
-        "score"
-    ].mean()
-    # sorted_given_scores["Average"] = avg_score_given
-
     styled_given_scores = sorted_given_scores.style.format(
         precision=2
     ).background_gradient(axis=1, cmap="RdYlGn")
-    st.dataframe(
-        styled_given_scores,
-        hide_index=True,
-    )
+    st.dataframe(styled_given_scores, hide_index=True)
 
 
 def _display_scores_received(
