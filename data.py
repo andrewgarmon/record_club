@@ -98,7 +98,7 @@ def build_deviation_df(reviews_df: pd.DataFrame) -> pd.DataFrame:
                 )
                 similarity_matrix.loc[user1, user2] = deviation_metric.round(2)
 
-    similarity_matrix = similarity_matrix.fillna(0).infer_objects(copy=False)
+    similarity_matrix = similarity_matrix.fillna(0).infer_objects()
     similarity_matrix.loc['average'] = similarity_matrix.mean().round(2)
     return similarity_matrix
 
