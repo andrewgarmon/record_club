@@ -112,6 +112,8 @@ if "decade" in album_stats.columns and album_stats["decade"].notna().any():
     )
     decade_df = decade_df.sort_values("_sort_key").drop(columns="_sort_key")
     decade_df["avg_score"] = decade_df["avg_score"].round(2)
+    score_min = decade_df["avg_score"].min() - 5
+    score_max = decade_df["avg_score"].max() + 5
 
     left, right = st.columns(2)
     with left:
@@ -137,7 +139,7 @@ if "decade" in album_stats.columns and album_stats["decade"].notna().any():
                 y=alt.Y(
                     "avg_score:Q",
                     title="Avg score",
-                    scale=alt.Scale(zero=False),
+                    scale=alt.Scale(domain=[score_min, score_max]),
                 ),
                 tooltip=["decade", "avg_score"],
             )
@@ -181,7 +183,7 @@ if "release_year" in album_stats.columns and album_stats["release_year"].notna()
         trend = (
             alt.Chart(year_df)
             .transform_regression("release_year", "mean")
-            .mark_line(color="#222", strokeDash=[4, 4])
+            .mark_line(color="#e45756", strokeWidth=3)
             .encode(x="release_year:Q", y="mean:Q")
         )
         st.altair_chart(
@@ -396,39 +398,6 @@ if (
         )
     )
     st.altair_chart((line + dots).properties(height=320), use_container_width=True)
-
-
-# ---------------------------------------------------------------------------
-# Track-level fun
-# ---------------------------------------------------------------------------
-st.divider()
-st.subheader("Tracks People Can't Stop Talking About")
-
-fav_col, least_col = st.columns(2)
-
-with fav_col:
-    st.markdown("**Most name-dropped as favorite**")
-    fav_tracks = (
-        reviews_df.dropna(subset=["favorite_track"])
-        .groupby(["artist", "album", "favorite_track"])
-        .size()
-        .reset_index(name="votes")
-        .sort_values("votes", ascending=False)
-        .head(10)
-    )
-    st.dataframe(fav_tracks, hide_index=True, use_container_width=True)
-
-with least_col:
-    st.markdown("**Most name-dropped as least favorite**")
-    least_tracks = (
-        reviews_df.dropna(subset=["least_favorite_track"])
-        .groupby(["artist", "album", "least_favorite_track"])
-        .size()
-        .reset_index(name="votes")
-        .sort_values("votes", ascending=False)
-        .head(10)
-    )
-    st.dataframe(least_tracks, hide_index=True, use_container_width=True)
 
 
 # ---------------------------------------------------------------------------
