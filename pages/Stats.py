@@ -10,11 +10,21 @@ import pandas as pd
 import streamlit as st
 
 import data
+import last_fm
 
 st.set_page_config(page_title="Stats - Records and Rebuttals", layout="wide")
 st.title("Record Club Stats")
 
 data.ensure_session_state(st.secrets["SHEETS_DOC_ID"])
+
+
+@st.cache_data(show_spinner=False)
+def _load_album_tags(albums_key: tuple, _lf_client) -> pd.DataFrame:
+    """Cache-wrapped genre-tag fetch. ``albums_key`` is just an (artist, album)
+    tuple used as the cache key; ``_lf_client`` starts with an underscore so
+    Streamlit skips hashing it."""
+    albums = pd.DataFrame(list(albums_key), columns=["artist", "album"])
+    return data.build_album_tags_df(albums, _lf_client)
 
 reviews_df: pd.DataFrame = st.session_state["reviews_df"].copy()
 albums_df: pd.DataFrame = st.session_state["albums_df"].copy()
@@ -204,6 +214,158 @@ if "release_year" in album_stats.columns and album_stats["release_year"].notna()
                 f"Release-year/score correlation is **{corr:+.2f}** — the club is "
                 f"{verdict}."
             )
+
+
+# ---------------------------------------------------------------------------
+# Genre / tag breakdown (Last.fm)
+# ---------------------------------------------------------------------------
+st.divider()
+st.subheader("What Does the Club Actually Listen To?")
+st.caption(
+    "Genre tags pulled from Last.fm. Each album contributes up to its top five "
+    "tags; personal labels (favorites, seen live, nationalities) and decade "
+    "tags are filtered out."
+)
+
+_lf_client = last_fm.LastFmClient(st.secrets["LAST_FM_API_KEY"])
+_albums_key = tuple(
+    albums_df[["artist", "album"]]
+    .dropna()
+    .itertuples(index=False, name=None)
+)
+with st.spinner("Fetching genre tags from Last.fm..."):
+    tags_df = _load_album_tags(_albums_key, _lf_client)
+
+if tags_df.empty:
+    st.info("Couldn't load any genre tags — check the Last.fm API key or network.")
+else:
+    tag_counts = (
+        tags_df.groupby("tag")
+        .size()
+        .reset_index(name="albums")
+        .sort_values("albums", ascending=False)
+    )
+
+    # Join tags with per-album mean score for score-by-genre.
+    tag_scores_all = tags_df.merge(
+        album_stats[["artist", "album", "mean"]],
+        on=["artist", "album"],
+        how="left",
+    ).dropna(subset=["mean"])
+    tag_scores = (
+        tag_scores_all.groupby("tag")
+        .agg(albums=("album", "count"), avg_score=("mean", "mean"))
+        .reset_index()
+        .round({"avg_score": 2})
+    )
+
+    top_n = 15
+    top_genres = tag_counts.head(top_n)
+    # Only rank score-by-genre on tags that appear at least twice — a single
+    # album's score isn't really a "genre average".
+    scored_genres = (
+        tag_scores[tag_scores["albums"] >= 2]
+        .sort_values("avg_score", ascending=False)
+        .head(top_n)
+    )
+
+    m1, m2, m3 = st.columns(3)
+    m1.metric("Distinct genres", int(tag_counts["tag"].nunique()))
+    m2.metric("Most common genre", top_genres.iloc[0]["tag"])
+    if not scored_genres.empty:
+        best = scored_genres.iloc[0]
+        m3.metric(
+            "Club's favorite genre",
+            best["tag"],
+            f"avg {best['avg_score']:.2f} over {int(best['albums'])} albums",
+        )
+
+    left, right = st.columns(2)
+    with left:
+        st.markdown("**Most common genres**")
+        chart = (
+            alt.Chart(top_genres)
+            .mark_bar(color="#6f42c1")
+            .encode(
+                x=alt.X("albums:Q", title="Albums"),
+                y=alt.Y("tag:N", sort="-x", title=None),
+                tooltip=["tag", "albums"],
+            )
+            .properties(height=28 * len(top_genres) + 40)
+        )
+        st.altair_chart(chart, use_container_width=True)
+    with right:
+        st.markdown("**Best-received genres** (≥ 2 albums)")
+        if scored_genres.empty:
+            st.caption(
+                "No genre has two or more albums yet — check back once the "
+                "club's racked up a few more picks."
+            )
+        else:
+            score_min = max(0, scored_genres["avg_score"].min() - 1)
+            score_max = min(10, scored_genres["avg_score"].max() + 1)
+            chart = (
+                alt.Chart(scored_genres)
+                .mark_bar()
+                .encode(
+                    x=alt.X(
+                        "avg_score:Q",
+                        title="Avg score",
+                        scale=alt.Scale(domain=[score_min, score_max]),
+                    ),
+                    y=alt.Y("tag:N", sort="-x", title=None),
+                    color=alt.Color(
+                        "avg_score:Q",
+                        scale=alt.Scale(scheme="redyellowgreen"),
+                        legend=None,
+                    ),
+                    tooltip=["tag", "avg_score", "albums"],
+                )
+                .properties(height=28 * len(scored_genres) + 40)
+            )
+            st.altair_chart(chart, use_container_width=True)
+
+    # Scatter: how much the club likes a genre vs. how often it shows up.
+    if (tag_scores["albums"] >= 2).any():
+        st.markdown("**Genre popularity vs. club reception**")
+        scatter_df = tag_scores[tag_scores["albums"] >= 2]
+        scatter = (
+            alt.Chart(scatter_df)
+            .mark_circle(size=140, opacity=0.8)
+            .encode(
+                x=alt.X("albums:Q", title="Albums in this genre"),
+                y=alt.Y(
+                    "avg_score:Q",
+                    title="Avg club score",
+                    scale=alt.Scale(zero=False),
+                ),
+                color=alt.Color(
+                    "avg_score:Q",
+                    scale=alt.Scale(scheme="redyellowgreen"),
+                    legend=None,
+                ),
+                tooltip=["tag", "albums", "avg_score"],
+            )
+        )
+        labels = (
+            alt.Chart(scatter_df)
+            .mark_text(align="left", dx=8, dy=-2, fontSize=11)
+            .encode(x="albums:Q", y="avg_score:Q", text="tag:N")
+        )
+        st.altair_chart(
+            (scatter + labels).properties(height=360),
+            use_container_width=True,
+        )
+
+    with st.expander("Per-album genre tags"):
+        per_album = (
+            tags_df.groupby(["artist", "album"])["tag"]
+            .apply(lambda tags: ", ".join(sorted(set(tags))))
+            .reset_index()
+            .rename(columns={"tag": "tags"})
+            .sort_values(["artist", "album"])
+        )
+        st.dataframe(per_album, hide_index=True, use_container_width=True)
 
 
 # ---------------------------------------------------------------------------

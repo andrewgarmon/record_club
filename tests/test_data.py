@@ -1,4 +1,6 @@
 """Tests for the pure data-munging helpers in ``data.py``."""
+from unittest.mock import MagicMock
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -233,3 +235,148 @@ class TestBuildListenerRequesterDf:
         )
         pivot = data.build_listener_requester_df(reviews, albums)
         assert pivot.loc["Alice", "Bob"] == pytest.approx(7.5)
+
+
+class TestNormalizeTag:
+    @pytest.mark.parametrize(
+        "raw,expected",
+        [
+            ("Alternative Rock", "alternative rock"),
+            ("Hip-Hop", "hip hop"),
+            ("  jazz  ", "jazz"),
+            ("Hip-hop   ", "hip hop"),
+        ],
+    )
+    def test_lowercases_and_normalizes_whitespace(self, raw, expected):
+        assert data._normalize_tag(raw) == expected
+
+    @pytest.mark.parametrize(
+        "raw",
+        ["favorites", "seen live", "british", "60s", "1990s", "2000s"],
+    )
+    def test_drops_noise_and_decade_tags(self, raw):
+        assert data._normalize_tag(raw) is None
+
+    def test_drops_empty_and_none(self):
+        assert data._normalize_tag("") is None
+        assert data._normalize_tag(None) is None
+        assert data._normalize_tag("   ") is None
+
+
+class TestBuildAlbumTagsDf:
+    def _fake_album(self, tags):
+        album = MagicMock()
+        album.tags = [{"name": t} for t in tags]
+        return album
+
+    def test_returns_long_frame_with_normalized_tags(self):
+        albums = pd.DataFrame(
+            [
+                {"artist": "Beatles", "album": "Abbey Road"},
+                {"artist": "Stones", "album": "Let It Bleed"},
+            ]
+        )
+        lf = MagicMock()
+        lf.get_album.side_effect = [
+            self._fake_album(["Rock", "Classic Rock", "Pop"]),
+            self._fake_album(["Rock", "Blues Rock"]),
+        ]
+
+        tags = data.build_album_tags_df(albums, lf)
+
+        assert list(tags.columns) == ["artist", "album", "tag"]
+        assert len(tags) == 5
+        # All tags lowercased.
+        assert tags["tag"].str.islower().all()
+        assert set(tags[tags["album"] == "Abbey Road"]["tag"]) == {
+            "rock",
+            "classic rock",
+            "pop",
+        }
+
+    def test_caps_at_max_tags_per_album(self):
+        albums = pd.DataFrame([{"artist": "X", "album": "Y"}])
+        lf = MagicMock()
+        lf.get_album.return_value = self._fake_album(
+            ["rock", "pop", "jazz", "folk", "metal", "punk", "soul"]
+        )
+
+        tags = data.build_album_tags_df(albums, lf, max_tags_per_album=3)
+
+        assert len(tags) == 3
+        assert list(tags["tag"]) == ["rock", "pop", "jazz"]
+
+    def test_deduplicates_within_album(self):
+        albums = pd.DataFrame([{"artist": "X", "album": "Y"}])
+        lf = MagicMock()
+        # "Rock" and "rock" should collapse to a single tag.
+        lf.get_album.return_value = self._fake_album(
+            ["Rock", "rock", "Hip-Hop", "hip hop"]
+        )
+
+        tags = data.build_album_tags_df(albums, lf)
+
+        assert list(tags["tag"]) == ["rock", "hip hop"]
+
+    def test_skips_blocklisted_and_decade_tags(self):
+        albums = pd.DataFrame([{"artist": "X", "album": "Y"}])
+        lf = MagicMock()
+        lf.get_album.return_value = self._fake_album(
+            ["favorites", "60s", "seen live", "rock", "british", "indie"]
+        )
+
+        tags = data.build_album_tags_df(albums, lf)
+
+        assert set(tags["tag"]) == {"rock", "indie"}
+
+    def test_skips_rows_with_missing_artist_or_album(self):
+        albums = pd.DataFrame(
+            [
+                {"artist": "X", "album": None},
+                {"artist": None, "album": "Y"},
+                {"artist": "Good", "album": "Album"},
+            ]
+        )
+        lf = MagicMock()
+        lf.get_album.return_value = self._fake_album(["rock"])
+
+        tags = data.build_album_tags_df(albums, lf)
+
+        assert len(tags) == 1
+        assert tags.iloc[0]["artist"] == "Good"
+        lf.get_album.assert_called_once_with("Good", "Album")
+
+    def test_swallows_client_errors(self):
+        albums = pd.DataFrame(
+            [
+                {"artist": "X", "album": "Y"},
+                {"artist": "A", "album": "B"},
+            ]
+        )
+        lf = MagicMock()
+        lf.get_album.side_effect = [
+            RuntimeError("api down"),
+            self._fake_album(["rock"]),
+        ]
+
+        tags = data.build_album_tags_df(albums, lf)
+
+        assert len(tags) == 1
+        assert tags.iloc[0]["artist"] == "A"
+
+    def test_skips_none_responses(self):
+        albums = pd.DataFrame([{"artist": "X", "album": "Y"}])
+        lf = MagicMock()
+        lf.get_album.return_value = None
+
+        tags = data.build_album_tags_df(albums, lf)
+
+        assert tags.empty
+        assert list(tags.columns) == ["artist", "album", "tag"]
+
+    def test_empty_albums_returns_empty_frame(self):
+        tags = data.build_album_tags_df(
+            pd.DataFrame(columns=["artist", "album"]), MagicMock()
+        )
+        assert tags.empty
+        assert list(tags.columns) == ["artist", "album", "tag"]

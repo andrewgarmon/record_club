@@ -92,6 +92,78 @@ def build_album_stats_df(
     )
 
 
+# Last.fm tags include lots of non-genre noise: personal labels ("favorites",
+# "seen live"), countries, decade strings, etc. We keep the list small and
+# lowercase so tags like "Hip-Hop" and "hip hop" collapse together via the
+# normalization below.
+_TAG_BLOCKLIST = frozenset(
+    {
+        'favorite', 'favorites', 'favourite', 'favourites',
+        'seen live', 'albums i own', 'vinyl', 'owned',
+        'awesome', 'amazing', 'cool', 'classic', 'masterpiece',
+        'male vocalists', 'female vocalists', 'male vocalist',
+        'female vocalist', 'singer-songwriter',
+        'american', 'british', 'english', 'canadian', 'australian',
+        'usa', 'uk', 'us', 'united states', 'united kingdom',
+    }
+)
+
+
+def _normalize_tag(name: str | None) -> str | None:
+    """Lowercase, collapse whitespace/hyphens, and drop blocklisted/decade tags."""
+    if not name:
+        return None
+    cleaned = name.strip().lower().replace('-', ' ')
+    cleaned = ' '.join(cleaned.split())
+    if not cleaned or cleaned in _TAG_BLOCKLIST:
+        return None
+    # Drop decade-style tags like "60s", "1960s", "2000s" — the Stats page
+    # already has a dedicated decade breakdown.
+    bare = cleaned.replace(' ', '')
+    if bare.endswith('s') and bare[:-1].isdigit():
+        return None
+    return cleaned
+
+
+def build_album_tags_df(
+    albums_df: pd.DataFrame,
+    lf_client,
+    max_tags_per_album: int = 5,
+) -> pd.DataFrame:
+    """Long-format (artist, album, tag) frame built from Last.fm album tags.
+
+    Tags are normalized to lowercase and filtered through a small blocklist so
+    that personal labels ("favorites", "seen live") and decade tags don't
+    drown out the actual genres. One album contributes up to
+    ``max_tags_per_album`` tags, taken in the order Last.fm returns them
+    (which is by tag popularity).
+    """
+    rows = []
+    for _, row in albums_df.iterrows():
+        artist = row.get('artist')
+        album_name = row.get('album')
+        if not (pd.notna(artist) and pd.notna(album_name)):
+            continue
+        try:
+            album = lf_client.get_album(artist, album_name)
+        except Exception:
+            continue
+        if album is None:
+            continue
+        seen = set()
+        kept = 0
+        for tag in album.tags:
+            if kept >= max_tags_per_album:
+                break
+            name = _normalize_tag(tag.get('name'))
+            if name is None or name in seen:
+                continue
+            seen.add(name)
+            rows.append({'artist': artist, 'album': album_name, 'tag': name})
+            kept += 1
+    return pd.DataFrame(rows, columns=['artist', 'album', 'tag'])
+
+
 def build_reviews_df(df: pd.DataFrame, listeners: list[str]) -> pd.DataFrame:
     reviews_rows = [
         {
