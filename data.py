@@ -40,6 +40,14 @@ def get_listeners(df: pd.DataFrame) -> list[str]:
     ]
 
 
+def _year_to_decade(year) -> str | None:
+    try:
+        y = int(year)
+    except (TypeError, ValueError):
+        return None
+    return f"{(y // 10) * 10}s"
+
+
 def build_albums_df(df: pd.DataFrame) -> pd.DataFrame:
     columns = {
         'Artist': 'artist',
@@ -49,8 +57,111 @@ def build_albums_df(df: pd.DataFrame) -> pd.DataFrame:
     }
     if 'Release Year' in df.columns:
         columns['Release Year'] = 'release_year'
+    if 'Decade' in df.columns:
+        columns['Decade'] = 'decade'
     available = {k: v for k, v in columns.items() if k in df.columns}
-    return df[list(available.keys())].rename(columns=available).reset_index(drop=True)
+    result = (
+        df[list(available.keys())].rename(columns=available).reset_index(drop=True)
+    )
+    if 'decade' not in result.columns and 'release_year' in result.columns:
+        result['decade'] = result['release_year'].apply(_year_to_decade)
+    if 'date' in result.columns:
+        result['date'] = pd.to_datetime(result['date'], errors='coerce')
+    return result
+
+
+def build_album_stats_df(
+    reviews_df: pd.DataFrame, albums_df: pd.DataFrame
+) -> pd.DataFrame:
+    """Per-album score aggregates joined with album metadata.
+
+    Columns: artist, album, requester, date, release_year, decade (when
+    available), plus mean/median/std/min/max/count.
+    """
+    if reviews_df.empty:
+        return pd.DataFrame()
+    stats = (
+        reviews_df.groupby(['artist', 'album'])['score']
+        .agg(['mean', 'median', 'std', 'min', 'max', 'count'])
+        .reset_index()
+    )
+    stats['std'] = stats['std'].fillna(0)
+    merged = stats.merge(albums_df, on=['artist', 'album'], how='left')
+    return merged.round(
+        {'mean': 2, 'median': 2, 'std': 2, 'min': 2, 'max': 2}
+    )
+
+
+# Last.fm tags include lots of non-genre noise: personal labels ("favorites",
+# "seen live"), countries, decade strings, etc. We keep the list small and
+# lowercase so tags like "Hip-Hop" and "hip hop" collapse together via the
+# normalization below.
+_TAG_BLOCKLIST = frozenset(
+    {
+        'favorite', 'favorites', 'favourite', 'favourites',
+        'seen live', 'albums i own', 'vinyl', 'owned',
+        'awesome', 'amazing', 'cool', 'classic', 'masterpiece',
+        'male vocalists', 'female vocalists', 'male vocalist',
+        'female vocalist', 'singer-songwriter',
+        'american', 'british', 'english', 'canadian', 'australian',
+        'usa', 'uk', 'us', 'united states', 'united kingdom',
+    }
+)
+
+
+def _normalize_tag(name: str | None) -> str | None:
+    """Lowercase, collapse whitespace/hyphens, and drop blocklisted/decade tags."""
+    if not name:
+        return None
+    cleaned = name.strip().lower().replace('-', ' ')
+    cleaned = ' '.join(cleaned.split())
+    if not cleaned or cleaned in _TAG_BLOCKLIST:
+        return None
+    # Drop decade-style tags like "60s", "1960s", "2000s" — the Stats page
+    # already has a dedicated decade breakdown.
+    bare = cleaned.replace(' ', '')
+    if bare.endswith('s') and bare[:-1].isdigit():
+        return None
+    return cleaned
+
+
+def build_album_tags_df(
+    albums_df: pd.DataFrame,
+    lf_client,
+    max_tags_per_album: int = 5,
+) -> pd.DataFrame:
+    """Long-format (artist, album, tag) frame built from Last.fm album tags.
+
+    Tags are normalized to lowercase and filtered through a small blocklist so
+    that personal labels ("favorites", "seen live") and decade tags don't
+    drown out the actual genres. One album contributes up to
+    ``max_tags_per_album`` tags, taken in the order Last.fm returns them
+    (which is by tag popularity).
+    """
+    rows = []
+    for _, row in albums_df.iterrows():
+        artist = row.get('artist')
+        album_name = row.get('album')
+        if not (pd.notna(artist) and pd.notna(album_name)):
+            continue
+        try:
+            album = lf_client.get_album(artist, album_name)
+        except Exception:
+            continue
+        if album is None:
+            continue
+        seen = set()
+        kept = 0
+        for tag in album.tags:
+            if kept >= max_tags_per_album:
+                break
+            name = _normalize_tag(tag.get('name'))
+            if name is None or name in seen:
+                continue
+            seen.add(name)
+            rows.append({'artist': artist, 'album': album_name, 'tag': name})
+            kept += 1
+    return pd.DataFrame(rows, columns=['artist', 'album', 'tag'])
 
 
 def build_reviews_df(df: pd.DataFrame, listeners: list[str]) -> pd.DataFrame:
@@ -98,7 +209,7 @@ def build_deviation_df(reviews_df: pd.DataFrame) -> pd.DataFrame:
                 )
                 similarity_matrix.loc[user1, user2] = deviation_metric.round(2)
 
-    similarity_matrix = similarity_matrix.fillna(0).infer_objects(copy=False)
+    similarity_matrix = similarity_matrix.fillna(0).infer_objects()
     similarity_matrix.loc['average'] = similarity_matrix.mean().round(2)
     return similarity_matrix
 
@@ -114,3 +225,36 @@ def build_listener_requester_df(
     )
     avg_scores_df['score'] = avg_scores_df['score'].round(1)
     return avg_scores_df.pivot(index='listener', columns='requester', values='score')
+
+
+def ensure_session_state(sheets_doc_id: str) -> None:
+    """Populate session state with all derived dataframes.
+
+    Safe to call from any page: if everything's already loaded we return
+    immediately, otherwise we load the sheet and build every derived frame
+    the app uses. This frees non-home pages from depending on whatever keys
+    happened to be set by the last Home-page run.
+    """
+    required = (
+        'albums_df',
+        'reviews_df',
+        'deviation_df',
+        'listener_requester_df',
+        'album_stats_df',
+    )
+    if all(k in st.session_state for k in required):
+        return
+
+    df = load_sheet(sheets_doc_id)
+    listeners = get_listeners(df)
+    albums_df = build_albums_df(df)
+    reviews_df = build_reviews_df(df, listeners)
+    st.session_state['albums_df'] = albums_df
+    st.session_state['reviews_df'] = reviews_df
+    st.session_state['deviation_df'] = build_deviation_df(reviews_df)
+    st.session_state['listener_requester_df'] = build_listener_requester_df(
+        reviews_df, albums_df
+    )
+    st.session_state['album_stats_df'] = build_album_stats_df(
+        reviews_df, albums_df
+    )

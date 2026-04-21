@@ -2,11 +2,21 @@
 
 ## To run locally:
 
-`git clone https://github.com/andrewgarmon/record_club.git`
+```
+git clone https://github.com/andrewgarmon/record_club.git
+pip install -r requirements.txt        # or pip3
+streamlit run Records_and_Rebuttals.py
+```
 
-`pip install -r requirements.txt` (or pip3)
+## Running the tests
 
-`streamlit run main.py`
+```
+pip install -r requirements-dev.txt
+pytest
+```
+
+Tests also run automatically on every push / pull request via GitHub Actions
+(see `.github/workflows/ci.yml`).
 
 ## Streamlit Community Cloud Deployment:
 http://record-club.streamlit.app
