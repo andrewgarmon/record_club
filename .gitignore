@@ -119,3 +119,7 @@ frontend/cypress/snapshots/linux/1x
 !.vscode/launch.json
 
 .swc/
+
+# Claude
+.claude/
+
